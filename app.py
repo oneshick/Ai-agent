@@ -4,7 +4,8 @@ import numpy as np
 
 from agent import run_agent
 from charts import render_chart
-from config import MODEL   # ← ВОТ ЭТОГО НЕ ХВАТАЛО
+from config import MODEL
+from security import sanitize_dataframe   # ← Уровень 1
 
 st.title("ИИ-агент аналитики данных")
 
@@ -22,21 +23,37 @@ with st.sidebar:
         "5. Модель интерпретирует результаты\n"
         "6. Выводятся метрики, графики, инсайты"
     )
+    st.divider()
+    st.markdown("**Безопасность:**")
+    st.markdown(
+        "Проверка CSV на инъекции\n\n"
+        "Блокировка опасного кода\n\n"
+        "Валидация ответа агента"
+    )
 
 uploaded_file = st.file_uploader("Загрузите CSV-файл", type=["csv","tsv","txt"])
 
 if uploaded_file:
     try:
         sep = "\t" if uploaded_file.name.endswith(".tsv") else ","
-        df = pd.read_csv(uploaded_file, sep=sep)
-        st.success(f"Файл загружен: **{uploaded_file.name}** — {df.shape[0]} строк × {df.shape[1]} столбцов")
-
-        with st.expander("Предпросмотр данных", expanded=False):
-            st.dataframe(df.head(10), use_container_width=True)
-
+        df_raw = pd.read_csv(uploaded_file, sep=sep)
+        st.success(f"Файл загружен: **{uploaded_file.name}** — {df_raw.shape[0]} строк × {df_raw.shape[1]} столбцов")
     except Exception as e:
         st.error(f"Ошибка чтения файла: {e}")
         st.stop()
+    try:
+        df, sec_warnings = sanitize_dataframe(df_raw)
+    except ValueError as e:
+        st.error(f"Файл отклонён системой безопасности: {e}")
+        st.stop()
+
+    if sec_warnings:
+        with st.expander(f"Обнаружено {len(sec_warnings)} подозрительных ячеек (заменены)", expanded=True):
+            for w in sec_warnings:
+                st.warning(w)
+
+    with st.expander("Предпросмотр данных", expanded=False):
+        st.dataframe(df.head(10), use_container_width=True)
 
     if st.button("Запустить анализ ИИ-агентом", type="primary", use_container_width=True):
         st.divider()
@@ -64,7 +81,6 @@ if uploaded_file:
             st.subheader("Ключевые метрики")
             cols = st.columns(min(len(result["metrics"]), 4))
             trend_icon = {"up": "🔺", "down": "🔻", "neutral": "➡️"}
-
             for i, m in enumerate(result["metrics"]):
                 with cols[i % 4]:
                     icon = trend_icon.get(m.get("trend","neutral"), "")
@@ -72,9 +88,7 @@ if uploaded_file:
 
         if result.get("charts"):
             st.subheader("Визуализации")
-
             charts = result["charts"]
-
             if len(charts) == 1:
                 render_chart(charts[0])
             else:
@@ -88,8 +102,7 @@ if uploaded_file:
 
         if result.get("insights"):
             st.subheader("Инсайты")
-            sev_map = {"high":("","error"), "medium":("","warning"), "low":("","info")}
-
+            sev_map = {"high":("🔴","error"), "medium":("🟡","warning"), "low":("🔵","info")}
             for ins in result["insights"]:
                 icon, kind = sev_map.get(ins.get("severity","low"), ("🔵","info"))
                 getattr(st, kind)(f"**{icon} {ins.get('title','')}** — {ins.get('description','')}")
@@ -104,7 +117,6 @@ if uploaded_file:
 
 else:
     st.info("Загрузите CSV-файл выше, чтобы начать анализ")
-
     st.markdown("### Примеры датасетов для теста")
 
     np.random.seed(42)
@@ -116,7 +128,6 @@ else:
         "оценка": np.random.choice([1, 2, 3, 4, 5], 100, p=[0.05, 0.1, 0.3, 0.4, 0.15]),
         "уволился": np.random.choice(["Да", "Нет"], 100, p=[0.2, 0.8]),
     })
-
     st.download_button(
         "Скачать демо: HR-данные сотрудников",
         data=hr_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),

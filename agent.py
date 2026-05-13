@@ -8,6 +8,7 @@ from openai import OpenAI
 from config import API_KEY, BASE_URL, MODEL
 from tools import execute_python
 from prompts import SYSTEM_PROMPT
+from security import validate_agent_response   # ← Уровень 3
 
 client = OpenAI(
     api_key=API_KEY,
@@ -96,7 +97,7 @@ def run_agent(df: pd.DataFrame, filename: str):
 
                 try:
                     args = json.loads(tc.function.arguments)
-                except:
+                except Exception:
                     args = {}
 
                 code = args.get("code", "")
@@ -126,15 +127,19 @@ def run_agent(df: pd.DataFrame, filename: str):
                 text_clean = text_clean.split("```")[1].split("```")[0].strip()
 
             try:
-                return json.loads(text_clean), steps, tool_calls_count
-            except:
+                raw_result = json.loads(text_clean)
+            except Exception:
                 m = re.search(r"\{[\s\S]*\}", text_clean)
                 if m:
                     try:
-                        return json.loads(m.group()), steps, tool_calls_count
-                    except:
-                        pass
+                        raw_result = json.loads(m.group())
+                    except Exception:
+                        raw_result = {"raw": text_content}
+                else:
+                    raw_result = {"raw": text_content}
 
-            return {"raw": text_content}, steps, tool_calls_count
+            # ── Уровень 3: валидируем и санируем ответ агента ──
+            safe_result = validate_agent_response(raw_result)
+            return safe_result, steps, tool_calls_count
 
     return {"raw": "Агент не вернул результат"}, steps, tool_calls_count

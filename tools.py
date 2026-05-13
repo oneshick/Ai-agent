@@ -3,8 +3,15 @@ import pandas as pd
 import numpy as np
 from io import StringIO
 
+from security import validate_code
+
 
 def execute_python(code: str, df: pd.DataFrame) -> str:
+    try:
+        validate_code(code)
+    except ValueError as e:
+        return f"[SECURITY] Код заблокирован: {e}"
+
     local_vars = {"df": df.copy(), "pd": pd, "np": np}
     output_lines = []
     old_stdout = sys.stdout
